@@ -1,0 +1,152 @@
+# Check whether the source also compiles with Xcode 26 (the "Xcode 26" line in
+# the acceptance criteria). This is a separate workflow on purpose: the deliverable
+# ios-build.yml must stay on xcode-27, and a failing compatibility check must not
+# turn its successful run red.
+name: Xcode 26 compatibility
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  xcode26:
+    runs-on: macos-26
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Select Xcode 26
+        run: |
+          set -euo pipefail
+          echo "runner: $(uname -m)"
+          sw_vers
+          shopt -s nullglob
+          apps=(/Applications/Xcode_26*.app)
+          if [ ${#apps[@]} -gt 0 ]; then
+            app="$(printf '%s\n' "${apps[@]}" | sort -V | tail -n 1)"
+            echo "selecting: $app"
+            sudo xcode-select -s "$app"
+          else
+            echo "No /Applications/Xcode_26*.app; using the image default."
+            find /Applications -maxdepth 1 -name 'Xcode*.app' -print | sed 's/^/  /'
+          fi
+          xcodebuild -version
+          ver="$(xcodebuild -version | sed -n '1s/^Xcode //p')"
+          case "$ver" in
+            26.*) echo "confirmed Xcode $ver" ;;
+            *) echo "::error::Expected Xcode 26, got $ver"; exit 1 ;;
+          esac
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: engine/package-lock.json
+
+      - name: Install xcodegen and cmake
+        run: |
+          set -euo pipefail
+          export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1
+          for tool in xcodegen cmake; do
+            for _ in 1 2 3; do
+              command -v "$tool" >/dev/null && break
+              brew install "$tool" || sleep 10
+            done
+            command -v "$tool" >/dev/null || {
+              echo "::error::Could not install $tool with Homebrew."
+              exit 1
+            }
+          done
+          xcodegen --version
+          cmake --version
+
+      - name: Fetch and build vendored dependencies
+        run: |
+          set -euo pipefail
+          scripts/fetch-nodejs-mobile.sh
+          scripts/fetch-python.sh
+          scripts/check-root-imports.sh
+          scripts/build-libgit2.sh
+          scripts/fetch-ffmpeg.sh
+          scripts/build-engine.sh
+
+      - name: Generate Xcode project
+        working-directory: app
+        run: |
+          set -euo pipefail
+          xcodegen generate --quiet
+          test -d DshIOS.xcodeproj
+
+      - name: xcodebuild -list
+        working-directory: app
+        run: |
+          set -euo pipefail
+          list="$GITHUB_WORKSPACE/xcode26-list.txt"
+          json="$GITHUB_WORKSPACE/xcode26-list.json"
+
+          echo "=== xcodebuild -list ==="
+          xcodebuild -list -project DshIOS.xcodeproj 2>&1 | tee "$list"
+
+          {
+            echo "### Xcode 26 xcodebuild -list"
+            echo '```'
+            cat "$list"
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+          xcodebuild -list -json -project DshIOS.xcodeproj >"$json" 2>/dev/null
+
+          python3 - "$json" <<'PY'
+          import json, sys
+
+          raw = open(sys.argv[1], encoding="utf-8").read()
+          start = raw.find("{")
+          if start < 0:
+              print("::error::xcodebuild -list -json produced no JSON; aborting.")
+              sys.exit(1)
+          schemes = (json.loads(raw[start:])["project"].get("schemes") or [])
+          print("actual schemes:", ", ".join(schemes) if schemes else "<none>")
+          if not schemes:
+              print("::error::xcodebuild -list listed no scheme; aborting.")
+              sys.exit(1)
+          if "DshIOS" not in schemes:
+              print("::error::DshIOS is not in the actual scheme list; aborting.")
+              sys.exit(1)
+          print("confirmed scheme: DshIOS")
+          PY
+
+      - name: Compile with Xcode 26 (iOS simulator, unsigned)
+        working-directory: app
+        run: |
+          set -o pipefail
+          xcodebuild -project DshIOS.xcodeproj -scheme DshIOS \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/DerivedData-xcode26 -skipPackagePluginValidation \
+            ARCHS=arm64 CODE_SIGNING_ALLOWED=NO \
+            build 2>&1 | tee "$GITHUB_WORKSPACE/xcode26-build.log"
+
+      - name: Upload compatibility logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcode26-compat-logs
+          path: |
+            xcode26-list.txt
+            xcode26-list.json
+            xcode26-build.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Xcode 26 compatibility"
+            echo ""
+            echo "- runner: \`$(uname -m)\`"
+            echo "- Xcode: \`$(xcodebuild -version | sed -n '1p')\`"
+            echo "- job status: \`${{ job.status }}\`"
+          } >>"$GITHUB_STEP_SUMMARY"
