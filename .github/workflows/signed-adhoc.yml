@@ -1,0 +1,352 @@
+# Sign the app for this one iPad (Ad Hoc) and install it straight from Safari.
+#
+# Ad Hoc needs the device's UDID registered on the team, so the first step registers it with
+# the App Store Connect API; Xcode's automatic signing then builds an Ad Hoc profile that
+# includes every registered device. The export is signed with the team's distribution
+# certificate, which is why iOS installs it without the "untrusted developer" prompt.
+#
+# Required repository settings:
+#   secrets.APPSTORE_P8        the whole AuthKey_XXXX.p8 file, pasted as text
+#   secrets.APPSTORE_KEY_ID    the key's Key ID
+#   secrets.APPSTORE_ISSUER_ID the Issuer ID
+#   vars.TEAM_ID               the 10-character Team ID
+#   vars.BUNDLE_PREFIX         a prefix the team owns, e.g. com.example -> com.example.dsh
+#   vars.DEVICE_UDID           the iPad's UDID (settings -> General -> About is not enough;
+#                              it comes from Apple Configurator, Finder, or a pairing record)
+name: Ad Hoc signed IPA (over-the-air install)
+
+on:
+  workflow_dispatch:
+    inputs:
+      strip_extra_entitlements:
+        description: "Strip HealthKit / HomeKit / Sign in with Apple, which need extra App ID setup"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: signed-adhoc
+  cancel-in-progress: false
+
+jobs:
+  sign:
+    runs-on: xcode-27
+    timeout-minutes: 120
+    env:
+      SCHEME: DshIOS
+      TEAM_ID: ${{ vars.TEAM_ID }}
+      BUNDLE_PREFIX: ${{ vars.BUNDLE_PREFIX }}
+      DEVICE_UDID: ${{ vars.DEVICE_UDID }}
+      KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+      ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+      APPSTORE_P8: ${{ secrets.APPSTORE_P8 }}
+
+    steps:
+      - name: Check the signing inputs
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${TEAM_ID}" ] || missing+=("vars.TEAM_ID")
+          [ -n "${BUNDLE_PREFIX}" ] || missing+=("vars.BUNDLE_PREFIX")
+          [ -n "${DEVICE_UDID}" ] || missing+=("vars.DEVICE_UDID")
+          [ -n "${KEY_ID}" ] || missing+=("secrets.APPSTORE_KEY_ID")
+          [ -n "${ISSUER_ID}" ] || missing+=("secrets.APPSTORE_ISSUER_ID")
+          [ -n "${APPSTORE_P8}" ] || missing+=("secrets.APPSTORE_P8")
+          if [ ${#missing[@]} -gt 0 ]; then
+            printf '::error::Missing repository settings: %s\n' "${missing[*]}"
+            exit 1
+          fi
+          echo "team=${TEAM_ID} bundle_prefix=${BUNDLE_PREFIX} udid_configured=yes key=${KEY_ID}"
+
+      - uses: actions/checkout@v5
+
+      - name: Select Xcode 27
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apps=(/Applications/Xcode_27*.app)
+          [ ${#apps[@]} -gt 0 ] || { echo "::error::No Xcode 27 on this runner."; exit 1; }
+          app="$(printf '%s\n' "${apps[@]}" | sort -V | tail -n 1)"
+          sudo xcode-select -s "$app"
+          xcodebuild -version
+
+      - name: Install xcodegen, cmake and the JWT helper
+        run: |
+          set -euo pipefail
+          export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1
+          for tool in xcodegen cmake; do
+            command -v "$tool" >/dev/null || brew install "$tool" || brew install "$tool"
+          done
+          python3 -m pip install --quiet --disable-pip-version-check pyjwt cryptography
+
+      - name: Write the App Store Connect API key
+        run: |
+          set -euo pipefail
+          dir="$HOME/.appstoreconnect/private_keys"
+          mkdir -p "$dir"
+          file="$dir/AuthKey_${KEY_ID}.p8"
+          printf '%s\n' "$APPSTORE_P8" | tr -d '\r' > "$file"
+          chmod 600 "$file"
+          grep -c 'BEGIN PRIVATE KEY' "$file" >/dev/null
+          echo "KEY_PATH=$file" >> "$GITHUB_ENV"
+
+      - name: Register this iPad on the team
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, time, urllib.error, urllib.request
+          import jwt
+
+          key_id, issuer, key_path = os.environ["KEY_ID"], os.environ["ISSUER_ID"], os.environ["KEY_PATH"]
+          udid = os.environ["DEVICE_UDID"]
+          now = int(time.time())
+          token = jwt.encode(
+              {"iss": issuer, "iat": now, "exp": now + 900, "aud": "appstoreconnect-v1"},
+              open(key_path).read(), algorithm="ES256", headers={"kid": key_id, "typ": "JWT"},
+          )
+          auth = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+          listing = urllib.request.Request(
+              "https://api.appstoreconnect.apple.com/v1/devices?limit=200", headers=auth)
+          with urllib.request.urlopen(listing) as r:
+              devices = json.load(r)["data"]
+          known = {d["attributes"]["udid"] for d in devices}
+          print(f"devices already on the team: {len(known)}")
+          if udid in known:
+              print("this iPad is already registered")
+          else:
+              body = json.dumps({"data": {"type": "devices", "attributes": {
+                  "name": "iPad (Ad Hoc install)", "udid": udid, "platform": "IOS"}}}).encode()
+              req = urllib.request.Request(
+                  "https://api.appstoreconnect.apple.com/v1/devices", data=body, headers=auth, method="POST")
+              try:
+                  with urllib.request.urlopen(req) as r:
+                      created = json.load(r)["data"]
+                  print("registered:", created["id"], created["attributes"]["status"])
+              except urllib.error.HTTPError as e:
+                  print("::error::Could not register the device:", e.read().decode()[:800])
+                  raise SystemExit(1)
+          PY
+
+      - name: Cache nodejs-mobile
+        id: nodejs-mobile
+        uses: actions/cache@v5
+        with:
+          path: |
+            vendor/nodejs-mobile/ios
+            vendor/nodejs-mobile/rooted
+          key: nodejs-mobile-${{ hashFiles('scripts/fetch-nodejs-mobile.sh') }}
+
+      - name: Fetch nodejs-mobile
+        if: steps.nodejs-mobile.outputs.cache-hit != 'true'
+        run: scripts/fetch-nodejs-mobile.sh
+
+      - name: Cache Python
+        id: python
+        uses: actions/cache@v5
+        with:
+          path: |
+            vendor/python/ios
+            vendor/python/rooted
+          key: python-${{ hashFiles('scripts/fetch-python.sh') }}
+
+      - name: Fetch Python
+        if: steps.python.outputs.cache-hit != 'true'
+        run: scripts/fetch-python.sh
+
+      - name: Check NodeMobile imports
+        run: scripts/check-root-imports.sh
+
+      - name: Cache libgit2
+        id: libgit2
+        uses: actions/cache@v5
+        with:
+          path: |
+            vendor/libgit2/Libgit2.xcframework
+            vendor/libgit2/ios-arm64
+            vendor/libgit2/ios-arm64-simulator
+            vendor/libgit2/macos
+          key: libgit2-${{ runner.os }}-${{ hashFiles('scripts/build-libgit2.sh') }}
+
+      - name: Build libgit2
+        if: steps.libgit2.outputs.cache-hit != 'true'
+        run: scripts/build-libgit2.sh
+
+      - name: Cache FFmpeg
+        id: ffmpeg
+        uses: actions/cache@v5
+        with:
+          path: vendor/ffmpeg/FFmpeg.xcframework
+          key: ffmpeg-${{ runner.os }}-${{ hashFiles('scripts/fetch-ffmpeg.sh', 'scripts/build-ffmpeg.sh', 'native/ffmpeg/**') }}
+
+      - name: Fetch FFmpeg
+        if: steps.ffmpeg.outputs.cache-hit != 'true'
+        run: scripts/fetch-ffmpeg.sh
+
+      - name: Assemble engine
+        run: scripts/build-engine.sh
+
+      - name: Point the project at this team
+        run: |
+          set -euo pipefail
+          file=app/project.yml
+          sed -i '' "s/^  bundleIdPrefix: com\.wsw$/  bundleIdPrefix: ${BUNDLE_PREFIX}/" "$file"
+          sed -i '' "s/com\.wsw\.dsh-ios/${BUNDLE_PREFIX}.dsh/g" "$file"
+          sed -i '' "s/DEVELOPMENT_TEAM: \"\"/DEVELOPMENT_TEAM: \"${TEAM_ID}\"/" "$file"
+          grep -nE "bundleIdPrefix|DEVELOPMENT_TEAM|PRODUCT_BUNDLE_IDENTIFIER" "$file" | sed 's/^/  /'
+
+      - name: Trim capabilities that need extra App ID setup
+        if: inputs.strip_extra_entitlements
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import plistlib, pathlib
+          drop = {"com.apple.developer.healthkit", "com.apple.developer.homekit",
+                  "com.apple.developer.applesignin"}
+          for path in sorted(pathlib.Path("app").glob("*/*.entitlements")):
+              data = plistlib.loads(path.read_bytes())
+              removed = [k for k in list(data) if k in drop]
+              for k in removed:
+                  del data[k]
+              path.write_bytes(plistlib.dumps(data))
+              print(f"{path}: removed {removed or 'nothing'}")
+          PY
+
+      - name: Generate Xcode project
+        working-directory: app
+        run: |
+          set -euo pipefail
+          xcodegen generate --quiet
+          test -d DshIOS.xcodeproj
+          xcodebuild -list -project DshIOS.xcodeproj >"$GITHUB_WORKSPACE/xcodebuild-list.txt" 2>&1
+          grep -q " $SCHEME" "$GITHUB_WORKSPACE/xcodebuild-list.txt" || {
+            echo "::error::Scheme $SCHEME is not in xcodebuild -list output."; exit 1; }
+
+      - name: Archive (Release, automatic signing)
+        working-directory: app
+        run: |
+          set -o pipefail
+          xcodebuild -project DshIOS.xcodeproj -scheme "$SCHEME" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/DshIOS.xcarchive \
+            -derivedDataPath build/DerivedData-signed \
+            -skipPackagePluginValidation -skipMacroValidation \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$KEY_PATH" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" \
+            archive 2>&1 | tee "$GITHUB_WORKSPACE/archive.log"
+
+      - name: Export an Ad Hoc IPA
+        run: |
+          set -euo pipefail
+          cat > ExportOptions.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>ad-hoc</string>
+            <key>destination</key><string>export</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>teamID</key><string>${TEAM_ID}</string>
+            <key>uploadSymbols</key><false/>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+          </dict>
+          </plist>
+          PLIST
+          rm -rf out && mkdir -p out
+          xcodebuild -exportArchive \
+            -archivePath app/build/DshIOS.xcarchive \
+            -exportPath out \
+            -exportOptionsPlist ExportOptions.plist \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$KEY_PATH" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" 2>&1 | tee "$GITHUB_WORKSPACE/export.log"
+
+      - name: Prove the profile covers this iPad
+        run: |
+          set -euo pipefail
+          IPA="$(ls out/*.ipa | head -n 1)"
+          rm -rf verify && mkdir verify && cd verify
+          unzip -q "../$IPA"
+          APP="Payload/$(ls Payload | head -n 1)"
+          {
+            echo "### Ad Hoc IPA"
+            echo "ipa: $(basename "$IPA") ($(stat -f%z "../$IPA") bytes)"
+            echo
+            echo '```'
+            codesign --verify --deep --strict --verbose=2 "$APP" 2>&1 || true
+            codesign -dvvv "$APP" 2>&1 | grep -E "Authority|TeamIdentifier|Identifier|Timestamp" || true
+            echo "--- profile"
+            security cms -D -i "$APP/embedded.mobileprovision" > profile.plist 2>/dev/null || true
+            plutil -extract Name raw profile.plist 2>/dev/null || true
+            plutil -extract ExpirationDate raw profile.plist 2>/dev/null || true
+            plutil -extract ProvisionedDevices json -o - profile.plist 2>/dev/null || echo "no ProvisionedDevices"
+            /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist"
+            /usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP/Info.plist"
+            /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist"
+            /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist"
+            echo '```'
+          } | tee "$GITHUB_WORKSPACE/sign-report.md"
+          cp "$GITHUB_WORKSPACE/sign-report.md" "$GITHUB_STEP_SUMMARY"
+          if [ -f profile.plist ] && ! plutil -extract ProvisionedDevices json -o - profile.plist 2>/dev/null | grep -q "$DEVICE_UDID"; then
+            echo "::warning::The profile does not list DEVICE_UDID; the install will be refused."
+          fi
+
+      - name: Publish the IPA with an over-the-air manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          IPA="$(ls out/*.ipa | head -n 1)"
+          name="DshIOS-adhoc.ipa"
+          tag="adhoc-${GITHUB_RUN_ID}"
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}"
+          cat > manifest.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>items</key>
+            <array>
+              <dict>
+                <key>assets</key>
+                <array>
+                  <dict>
+                    <key>kind</key><string>software-package</string>
+                    <key>url</key><string>${base}/${name}</string>
+                  </dict>
+                </array>
+                <key>metadata</key>
+                <dict>
+                  <key>bundle-identifier</key><string>${BUNDLE_PREFIX}.dsh</string>
+                  <key>bundle-version</key><string>${VERSION}</string>
+                  <key>kind</key><string>software</string>
+                  <key>title</key><string>Fish Pocket</string>
+                </dict>
+              </dict>
+            </array>
+          </dict>
+          </plist>
+          PLIST
+          cp "$IPA" "$name"
+          VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' verify/Payload/*/Info.plist 2>/dev/null || echo 1)"
+          gh release create "$tag" "$name" manifest.plist "$GITHUB_WORKSPACE/sign-report.md" \
+            --repo "${{ github.repository }}" \
+            --title "Ad Hoc IPA (${GITHUB_RUN_ID})" \
+            --notes "Signed with team ${TEAM_ID} for ${BUNDLE_PREFIX}.dsh and provisioned for ${DEVICE_UDID}. Install from Safari with the itms-services link in the job summary."
+          {
+            echo "### Install on the iPad"
+            echo ""
+            echo 'open this in Safari:'
+            echo ""
+            echo '```'
+            echo "itms-services://?action=download-manifest&url=${base}/manifest.plist"
+            echo '```'
+            echo ""
+            echo "ipa sha256: \`$(shasum -a 256 "$name" | awk '{print $1}')\`"
+          } >>"$GITHUB_STEP_SUMMARY"
