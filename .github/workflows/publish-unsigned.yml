@@ -1,0 +1,55 @@
+# Publish the unsigned IPA from an iOS build run as a public release asset,
+# so it can be downloaded on the iPad without digging through Actions artifacts.
+# It does NOT sign anything: the user signs it locally with their own certificate
+# or Apple ID (BuildBox / TanaraSign / ESign) and then installs it.
+name: Publish unsigned IPA
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: "iOS build run ID"
+        required: true
+        default: "44976133970"
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download the unsigned IPA artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download "${{ inputs.build_run_id }}" \
+            --repo "${{ github.repository }}" \
+            -n fish-pocket-unsigned-ios -D artifact
+          ipa="$(find artifact -name 'fish-pocket-unsigned.ipa' -print -quit)"
+          test -n "$ipa"
+          echo "ipa=$ipa" >> "$GITHUB_ENV"
+          ls -lh "$ipa"
+
+      - name: Publish as a release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="unsigned-${GITHUB_RUN_ID}"
+          gh release create "$tag" "$ipa" \
+            --repo "${{ github.repository }}" \
+            --title "Fish Pocket unsigned IPA (${GITHUB_RUN_ID})" \
+            --notes "Unsigned IPA built by GitHub Actions run ${{ inputs.build_run_id }}. Sign it with your own Apple Developer certificate or Apple ID on the iPad (BuildBox / TanaraSign / ESign), then install. This asset is NOT signed and cannot be installed as-is."
+          asset="https://github.com/${{ github.repository }}/releases/download/$tag/fish-pocket-unsigned.ipa"
+          {
+            echo "### Unsigned IPA release"
+            echo ""
+            echo "$asset"
+          } >>"$GITHUB_STEP_SUMMARY"
