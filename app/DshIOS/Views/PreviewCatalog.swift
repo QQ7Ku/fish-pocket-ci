@@ -35,6 +35,11 @@ private extension View {
         .previewEnvironment()
 }
 
+#Preview("Mini Apps") {
+    MiniAppsPage(asTab: true)
+        .previewEnvironment()
+}
+
 #Preview("插件") {
     PluginsView()
         .previewEnvironment()
@@ -52,6 +57,11 @@ private extension View {
 
 #Preview("账号与余额") {
     AccountPage()
+        .previewEnvironment()
+}
+
+#Preview("模型提供商") {
+    ModelProvidersPage()
         .previewEnvironment()
 }
 
