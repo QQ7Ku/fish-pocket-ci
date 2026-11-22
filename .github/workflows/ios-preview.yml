@@ -1,0 +1,259 @@
+# Render the app on an iPad simulator and upload a real PNG screenshot.
+# This is the evidence for the SwiftUI preview requirement; it is separate from
+# ios-build.yml so a screenshot problem cannot invalidate the unsigned IPA run.
+name: iOS preview PNG
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    runs-on: xcode-27
+    timeout-minutes: 60
+    env:
+      SCHEME: DshIOS
+      APP_BUNDLE_ID: com.wsw.dsh-ios
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Runner must be arm64
+        run: |
+          set -euo pipefail
+          arch="$(uname -m)"
+          echo "runner arch: $arch"
+          [ "$arch" = "arm64" ] || { echo "::error::arm64 runner required"; exit 1; }
+
+      - name: Select Xcode 27
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apps=(/Applications/Xcode_27*.app)
+          if [ ${#apps[@]} -eq 0 ]; then
+            echo "::error::No /Applications/Xcode_27*.app"
+            find /Applications -maxdepth 1 -name 'Xcode*.app' -print
+            exit 1
+          fi
+          app="$(printf '%s\n' "${apps[@]}" | sort -V | tail -n 1)"
+          echo "selecting: $app"
+          sudo xcode-select -s "$app"
+          xcodebuild -version
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: engine/package-lock.json
+
+      - name: Install xcodegen and cmake
+        run: |
+          set -euo pipefail
+          export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1
+          for tool in xcodegen cmake; do
+            for _ in 1 2 3; do
+              command -v "$tool" >/dev/null && break
+              brew install "$tool" || sleep 10
+            done
+            command -v "$tool" >/dev/null || { echo "::error::Could not install $tool"; exit 1; }
+          done
+          xcodegen --version
+          cmake --version
+
+      - name: Cache nodejs-mobile
+        id: nodejs-mobile
+        uses: actions/cache@v5
+        with:
+          path: |
+            vendor/nodejs-mobile/ios
+            vendor/nodejs-mobile/rooted
+          key: nodejs-mobile-${{ hashFiles('scripts/fetch-nodejs-mobile.sh') }}
+
+      - name: Fetch nodejs-mobile
+        if: steps.nodejs-mobile.outputs.cache-hit != 'true'
+        run: scripts/fetch-nodejs-mobile.sh
+
+      - name: Cache Python
+        id: python
+        uses: actions/cache@v5
+        with:
+          path: |
+            vendor/python/ios
+            vendor/python/rooted
+          key: python-${{ hashFiles('scripts/fetch-python.sh') }}
+
+      - name: Fetch Python
+        if: steps.python.outputs.cache-hit != 'true'
+        run: scripts/fetch-python.sh
+
+      - name: Check NodeMobile imports
+        run: scripts/check-root-imports.sh
+
+      - name: Cache libgit2
+        id: libgit2
+        uses: actions/cache@v5
+        with:
+          path: |
+            vendor/libgit2/Libgit2.xcframework
+            vendor/libgit2/ios-arm64
+            vendor/libgit2/ios-arm64-simulator
+            vendor/libgit2/macos
+          key: libgit2-${{ runner.os }}-${{ hashFiles('scripts/build-libgit2.sh') }}
+
+      - name: Build libgit2
+        if: steps.libgit2.outputs.cache-hit != 'true'
+        run: scripts/build-libgit2.sh
+
+      - name: Cache FFmpeg
+        id: ffmpeg
+        uses: actions/cache@v5
+        with:
+          path: vendor/ffmpeg/FFmpeg.xcframework
+          key: ffmpeg-${{ runner.os }}-${{ hashFiles('scripts/fetch-ffmpeg.sh', 'scripts/build-ffmpeg.sh', 'native/ffmpeg/**') }}
+
+      - name: Fetch FFmpeg
+        if: steps.ffmpeg.outputs.cache-hit != 'true'
+        run: scripts/fetch-ffmpeg.sh
+
+      - name: Assemble engine
+        run: scripts/build-engine.sh
+
+      - name: Generate Xcode project
+        working-directory: app
+        run: |
+          set -euo pipefail
+          xcodegen generate --quiet
+          test -d DshIOS.xcodeproj
+
+      - name: Confirm scheme with xcodebuild -list
+        working-directory: app
+        run: |
+          set -euo pipefail
+          list="$GITHUB_WORKSPACE/xcodebuild-list.txt"
+          json="$GITHUB_WORKSPACE/xcodebuild-list.json"
+
+          echo "=== xcodebuild -list ==="
+          xcodebuild -list -project DshIOS.xcodeproj 2>&1 | tee "$list"
+
+          {
+            echo "### xcodebuild -list"
+            echo '```'
+            cat "$list"
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+          xcodebuild -list -json -project DshIOS.xcodeproj >"$json" 2>/dev/null
+
+          python3 - "$json" "$SCHEME" <<'PY'
+          import json, sys
+
+          raw = open(sys.argv[1], encoding="utf-8").read()
+          start = raw.find("{")
+          if start < 0:
+              print("::error::xcodebuild -list -json produced no JSON; aborting.")
+              sys.exit(1)
+          schemes = (json.loads(raw[start:])["project"].get("schemes") or [])
+          print("actual schemes:", ", ".join(schemes) if schemes else "<none>")
+          if not schemes:
+              print("::error::xcodebuild -list listed no scheme; aborting.")
+              sys.exit(1)
+          if sys.argv[2] not in schemes:
+              print(f"::error::Scheme {sys.argv[2]!r} is not in the actual list; aborting.")
+              sys.exit(1)
+          print(f"confirmed scheme: {sys.argv[2]}")
+          PY
+
+      - name: Compile (iOS simulator, Debug)
+        working-directory: app
+        run: |
+          set -o pipefail
+          xcodebuild -project DshIOS.xcodeproj -scheme "$SCHEME" \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/DerivedData -skipPackagePluginValidation \
+            ARCHS=arm64 CODE_SIGNING_ALLOWED=NO \
+            build -quiet 2>&1 | tee "$GITHUB_WORKSPACE/simulator-build.log"
+
+      - name: Render on an iPad simulator and screenshot
+        working-directory: app
+        run: |
+          set -euo pipefail
+          udid="$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)["devices"]
+          for runtime in sorted(data, reverse=True):
+              if "iOS" not in runtime:
+                  continue
+              for device in data[runtime]:
+                  if device.get("isAvailable") and device["name"].startswith("iPad"):
+                      print(device["udid"])
+                      sys.exit(0)
+          sys.exit(1)
+          ')"
+          echo "simulator: $udid"
+          xcrun simctl boot "$udid" 2>/dev/null || true
+          xcrun simctl bootstatus "$udid" -b
+          xcrun simctl listapps "$udid" > "$GITHUB_WORKSPACE/simulator-apps-before.txt" || true
+
+          APP="build/DerivedData/Build/Products/Debug-iphonesimulator/DshIOS.app"
+          test -d "$APP"
+          xcrun simctl install "$udid" "$APP"
+          xcrun simctl launch "$udid" "$APP_BUNDLE_ID" || true
+          sleep 30
+
+          mkdir -p "$GITHUB_WORKSPACE/preview"
+          xcrun simctl io "$udid" screenshot "$GITHUB_WORKSPACE/preview/01-main.png"
+
+          # A second, real screen: the new-conversation deep link.
+          xcrun simctl openurl "$udid" "dsh://new" || true
+          sleep 8
+          xcrun simctl io "$udid" screenshot "$GITHUB_WORKSPACE/preview/02-new-conversation.png" || true
+
+          xcrun simctl spawn "$udid" log show --last 5m --style compact \
+            --predicate 'process == "DshIOS"' > "$GITHUB_WORKSPACE/simulator.log" 2>&1 || true
+          tail -n 40 "$GITHUB_WORKSPACE/simulator.log" || true
+
+      - name: Upload PNG preview
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fish-pocket-preview-png
+          path: |
+            preview/*.png
+            xcodebuild-list.txt
+            xcodebuild-list.json
+            simulator-build.log
+            simulator.log
+            simulator-apps-before.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fish-pocket-preview-failure-logs
+          path: |
+            xcodebuild-list.txt
+            xcodebuild-list.json
+            simulator-build.log
+            simulator.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Fish Pocket preview PNG"
+            echo ""
+            echo "- runner: \`$(uname -m)\`"
+            echo "- Xcode: \`$(xcodebuild -version | sed -n '1p')\`"
+            echo "- artifact: \`fish-pocket-preview-png\`"
+            echo "- PNG: \`01-main.png\`, \`02-new-conversation.png\`"
+          } >>"$GITHUB_STEP_SUMMARY"
