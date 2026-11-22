@@ -1,0 +1,329 @@
+# Sign the app with the developer's own Apple Developer team and upload it to TestFlight.
+#
+# Nothing is stored in this repository: Xcode's automatic signing creates the distribution
+# certificate, the App IDs and the provisioning profiles from an App Store Connect API key
+# that lives in repository secrets. The API key needs the App Manager role and must be an
+# "App Store Connect API" key (Users and Access -> Integrations -> App Store Connect API).
+#
+# Required repository settings:
+#   secrets.APPSTORE_P8        the whole AuthKey_XXXX.p8 file, pasted as text
+#   secrets.APPSTORE_KEY_ID    the key's Key ID (10 characters)
+#   secrets.APPSTORE_ISSUER_ID the Issuer ID (a UUID) from the same page
+#   vars.TEAM_ID               the 10-character Team ID (Membership page)
+#   vars.BUNDLE_PREFIX         a prefix the team owns, e.g. com.example -> app is com.example.dsh
+#
+# The App Store Connect app record for <BUNDLE_PREFIX>.dsh must already exist, otherwise the
+# upload is rejected with "no app record".
+name: Signed IPA and TestFlight upload
+
+on:
+  workflow_dispatch:
+    inputs:
+      bundle_prefix:
+        description: "Bundle ID prefix the team owns (app becomes <prefix>.dsh); empty uses vars.BUNDLE_PREFIX"
+        required: false
+        default: ""
+      strip_extra_entitlements:
+        description: "Strip HealthKit / HomeKit / Sign in with Apple, which need extra App ID setup"
+        type: boolean
+        default: true
+      skip_upload:
+        description: "Only build, sign and publish the IPA, without uploading to TestFlight"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: signed-testflight
+  cancel-in-progress: false
+
+jobs:
+  sign:
+    runs-on: xcode-27
+    timeout-minutes: 120
+    env:
+      SCHEME: DshIOS
+      TEAM_ID: ${{ vars.TEAM_ID }}
+      BUNDLE_PREFIX: ${{ inputs.bundle_prefix || vars.BUNDLE_PREFIX }}
+      KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+      ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+      APPSTORE_P8: ${{ secrets.APPSTORE_P8 }}
+
+    steps:
+      - name: Check the signing inputs
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${TEAM_ID}" ] || missing+=("vars.TEAM_ID")
+          [ -n "${BUNDLE_PREFIX}" ] || missing+=("inputs.bundle_prefix (or vars.BUNDLE_PREFIX)")
+          [ -n "${KEY_ID}" ] || missing+=("secrets.APPSTORE_KEY_ID")
+          [ -n "${ISSUER_ID}" ] || missing+=("secrets.APPSTORE_ISSUER_ID")
+          [ -n "${APPSTORE_P8}" ] || missing+=("secrets.APPSTORE_P8")
+          if [ ${#missing[@]} -gt 0 ]; then
+            printf '::error::Missing repository settings: %s\n' "${missing[*]}"
+            exit 1
+          fi
+          echo "team=${TEAM_ID} bundle_prefix=${BUNDLE_PREFIX} key=${KEY_ID}"
+
+      - uses: actions/checkout@v5
+
+      - name: Select Xcode 27
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apps=(/Applications/Xcode_27*.app)
+          if [ ${#apps[@]} -eq 0 ]; then
+            echo "::error::No /Applications/Xcode_27*.app on this runner."
+            find /Applications -maxdepth 1 -name 'Xcode*.app' -print | sed 's/^/  /'
+            exit 1
+          fi
+          app="$(printf '%s\n' "${apps[@]}" | sort -V | tail -n 1)"
+          sudo xcode-select -s "$app"
+          xcodebuild -version
+
+      - name: Install xcodegen and cmake
+        run: |
+          set -euo pipefail
+          export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1
+          for tool in xcodegen cmake; do
+            for _ in 1 2 3; do
+              command -v "$tool" >/dev/null && break
+              brew install "$tool" || sleep 10
+            done
+            command -v "$tool" >/dev/null || {
+              echo "::error::Could not install $tool with Homebrew."
+              exit 1
+            }
+          done
+          xcodegen --version
+          cmake --version
+
+      # altool looks the key up by Key ID in this folder; xcodebuild gets the path instead.
+      - name: Write the App Store Connect API key
+        run: |
+          set -euo pipefail
+          dir="$HOME/.appstoreconnect/private_keys"
+          mkdir -p "$dir"
+          file="$dir/AuthKey_${KEY_ID}.p8"
+          printf '%s\n' "$APPSTORE_P8" | tr -d '\r' > "$file"
+          chmod 600 "$file"
+          echo "key written: $file ($(wc -c < "$file" | tr -d ' ') bytes)"
+          echo "KEY_PATH=$file" >> "$GITHUB_ENV"
+          grep -c 'BEGIN PRIVATE KEY' "$file" >/dev/null || {
+            echo "::error::secrets.APPSTORE_P8 does not look like a .p8 private key."
+            exit 1
+          }
+
+      - name: Cache nodejs-mobile
+        id: nodejs-mobile
+        uses: actions/cache@v5
+        with:
+          path: |
+            vendor/nodejs-mobile/ios
+            vendor/nodejs-mobile/rooted
+          key: nodejs-mobile-${{ hashFiles('scripts/fetch-nodejs-mobile.sh') }}
+
+      - name: Fetch nodejs-mobile
+        if: steps.nodejs-mobile.outputs.cache-hit != 'true'
+        run: scripts/fetch-nodejs-mobile.sh
+
+      - name: Cache Python
+        id: python
+        uses: actions/cache@v5
+        with:
+          path: |
+            vendor/python/ios
+            vendor/python/rooted
+          key: python-${{ hashFiles('scripts/fetch-python.sh') }}
+
+      - name: Fetch Python
+        if: steps.python.outputs.cache-hit != 'true'
+        run: scripts/fetch-python.sh
+
+      - name: Check NodeMobile imports
+        run: scripts/check-root-imports.sh
+
+      - name: Cache libgit2
+        id: libgit2
+        uses: actions/cache@v5
+        with:
+          path: |
+            vendor/libgit2/Libgit2.xcframework
+            vendor/libgit2/ios-arm64
+            vendor/libgit2/ios-arm64-simulator
+            vendor/libgit2/macos
+          key: libgit2-${{ runner.os }}-${{ hashFiles('scripts/build-libgit2.sh') }}
+
+      - name: Build libgit2
+        if: steps.libgit2.outputs.cache-hit != 'true'
+        run: scripts/build-libgit2.sh
+
+      - name: Cache FFmpeg
+        id: ffmpeg
+        uses: actions/cache@v5
+        with:
+          path: vendor/ffmpeg/FFmpeg.xcframework
+          key: ffmpeg-${{ runner.os }}-${{ hashFiles('scripts/fetch-ffmpeg.sh', 'scripts/build-ffmpeg.sh', 'native/ffmpeg/**') }}
+
+      - name: Fetch FFmpeg
+        if: steps.ffmpeg.outputs.cache-hit != 'true'
+        run: scripts/fetch-ffmpeg.sh
+
+      - name: Assemble engine
+        run: scripts/build-engine.sh
+
+      - name: Point the project at this team
+        run: |
+          set -euo pipefail
+          file=app/project.yml
+          sed -i '' "s/^  bundleIdPrefix: com\.wsw$/  bundleIdPrefix: ${BUNDLE_PREFIX}/" "$file"
+          sed -i '' "s/com\.wsw\.dsh-ios/${BUNDLE_PREFIX}.dsh/g" "$file"
+          sed -i '' "s/DEVELOPMENT_TEAM: \"\"/DEVELOPMENT_TEAM: \"${TEAM_ID}\"/" "$file"
+          grep -nE "bundleIdPrefix|DEVELOPMENT_TEAM|PRODUCT_BUNDLE_IDENTIFIER|DSH_APP_GROUP" "$file" | sed 's/^/  /'
+
+      - name: Trim capabilities that need extra App ID setup
+        if: inputs.strip_extra_entitlements
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import plistlib, pathlib
+          drop = {
+              "com.apple.developer.healthkit",
+              "com.apple.developer.homekit",
+              "com.apple.developer.applesignin",
+          }
+          for path in sorted(pathlib.Path("app").glob("*/*.entitlements")):
+              data = plistlib.loads(path.read_bytes())
+              removed = [k for k in list(data) if k in drop]
+              for k in removed:
+                  del data[k]
+              path.write_bytes(plistlib.dumps(data))
+              print(f"{path}: removed {removed or 'nothing'}")
+          PY
+
+      - name: Generate Xcode project
+        working-directory: app
+        run: |
+          set -euo pipefail
+          xcodegen generate --quiet
+          test -d DshIOS.xcodeproj
+          xcodebuild -list -project DshIOS.xcodeproj 2>&1 | tee "$GITHUB_WORKSPACE/xcodebuild-list.txt"
+          grep -q " $SCHEME" "$GITHUB_WORKSPACE/xcodebuild-list.txt" || {
+            echo "::error::Scheme $SCHEME is not in xcodebuild -list output."
+            exit 1
+          }
+
+      - name: Archive (Release, signed by automatic provisioning)
+        working-directory: app
+        run: |
+          set -o pipefail
+          xcodebuild -project DshIOS.xcodeproj -scheme "$SCHEME" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/DshIOS.xcarchive \
+            -derivedDataPath build/DerivedData-signed \
+            -skipPackagePluginValidation -skipMacroValidation \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$KEY_PATH" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" \
+            archive 2>&1 | tee "$GITHUB_WORKSPACE/archive.log"
+
+      - name: Export for App Store Connect
+        run: |
+          set -euo pipefail
+          cat > ExportOptions.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>export</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>teamID</key><string>${TEAM_ID}</string>
+            <key>uploadSymbols</key><false/>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+            <key>stripSwiftSymbols</key><true/>
+          </dict>
+          </plist>
+          PLIST
+          rm -rf out && mkdir -p out
+          xcodebuild -exportArchive \
+            -archivePath app/build/DshIOS.xcarchive \
+            -exportPath out \
+            -exportOptionsPlist ExportOptions.plist \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$KEY_PATH" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" 2>&1 | tee "$GITHUB_WORKSPACE/export.log"
+          ls -lh out
+
+      - name: Verify the signature and the profile
+        run: |
+          set -euo pipefail
+          IPA="$(ls out/*.ipa | head -n 1)"
+          rm -rf verify && mkdir verify && cd verify
+          unzip -q "../$IPA"
+          APP="Payload/$(ls Payload | head -n 1)"
+          {
+            echo "### Signed IPA"
+            echo "ipa: $IPA ($(stat -f%z "../$IPA") bytes)"
+            echo
+            echo '```'
+            echo "--- codesign --verify --deep --strict"
+            codesign --verify --deep --strict --verbose=2 "$APP" 2>&1 || true
+            echo "--- codesign -dvvv (app)"
+            codesign -dvvv "$APP" 2>&1 || true
+            echo "--- embedded.mobileprovision"
+            security cms -D -i "$APP/embedded.mobileprovision" 2>/dev/null | plutil -p - | head -40 || echo "no embedded profile"
+            echo "--- Info.plist"
+            /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist" 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP/Info.plist" 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist" 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist" 2>/dev/null || true
+            echo '```'
+          } | tee "$GITHUB_WORKSPACE/sign-report.md"
+          cp "$GITHUB_WORKSPACE/sign-report.md" "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload to TestFlight
+        if: ${{ !inputs.skip_upload }}
+        run: |
+          set -o pipefail
+          IPA="$(ls out/*.ipa | head -n 1)"
+          if command -v altool >/dev/null; then
+            xcrun altool --upload-app -f "$IPA" -t ios \
+              --apiKey "$KEY_ID" --apiIssuer "$ISSUER_ID" 2>&1 | tee "$GITHUB_WORKSPACE/upload.log"
+            exit $?
+          fi
+          echo "::warning::altool is missing from this Xcode; exporting again with destination=upload."
+          sed -i '' 's|<string>export</string>|<string>upload</string>|' ExportOptions.plist
+          xcodebuild -exportArchive \
+            -archivePath app/build/DshIOS.xcarchive \
+            -exportPath out-upload \
+            -exportOptionsPlist ExportOptions.plist \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$KEY_PATH" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" 2>&1 | tee "$GITHUB_WORKSPACE/upload.log"
+
+      - name: Publish the signed IPA for the record
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          IPA="$(ls out/*.ipa | head -n 1)"
+          tag="signed-${GITHUB_RUN_ID}"
+          gh release create "$tag" "$IPA" "$GITHUB_WORKSPACE/sign-report.md" \
+            --repo "${{ github.repository }}" \
+            --title "Signed IPA (${GITHUB_RUN_ID})" \
+            --notes "Signed with team ${TEAM_ID} for bundle ${BUNDLE_PREFIX}.dsh and exported for App Store Connect. This is a store-signed IPA: it installs through TestFlight, not by sideloading."
+          {
+            echo "### Signed IPA"
+            echo ""
+            echo "release: https://github.com/${{ github.repository }}/releases/tag/$tag"
+            echo ""
+            echo "sha256: \`$(shasum -a 256 "$IPA" | awk '{print $1}')\`"
+          } >>"$GITHUB_STEP_SUMMARY"
