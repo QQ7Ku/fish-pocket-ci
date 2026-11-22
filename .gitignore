@@ -1,0 +1,13 @@
+.DS_Store
+# Generated / downloaded
+app/build/
+app/DshIOS.xcodeproj/
+vendor/
+engine/node_modules/
+engine/.dsh-home-host/
+# Xcode
+DerivedData/
+*.xcuserstate
+xcuserdata/
+# Local build settings (scripts/local-env.sh)
+.env.local

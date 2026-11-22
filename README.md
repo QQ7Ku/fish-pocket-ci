@@ -1,0 +1,330 @@
+<p align="center">
+  <img src="docs/assets/mascot.png" width="220" alt="Fish Pocket 吉祥物：眨眼笑的鲸鱼娘大肥鱼">
+</p>
+
+<h3 align="center">Fish Pocket</h3>
+
+<h1 align="center">在 iPhone 和 iPad 上本机运行 DSH（DeepSeek Harness），界面完全原生</h1>
+
+<p align="center">
+  <b>本机运行不靠电脑，不靠服务器，不是网页套壳。引擎就跑在 App 里，每个页面都用 SwiftUI 重写，iPhone 和 iPad 都是原生体验。</b>
+</p>
+
+<p align="center">
+  <b>功能对齐 DSH 官方 Web UI，官方有的这里都有。智能体还能直接用 iPhone 自带的日历、提醒事项、健康、照片和地图。</b>
+</p>
+
+<p align="center">
+  <b>还有四个大功能：<a href="#操控手机">操控手机</a>，让智能体替你点按其他 App；<a href="#做自己的小工具">做自己的小工具</a>，说一句话就有一个能放到主屏幕上的小工具；<a href="#bot-模式">Bot 模式</a>，一支原生界面的常驻 Bot 团队；<a href="#远程控制">远程控制</a>，在手机上管电脑和服务器里的 Codex、Claude Code 和 DSH 会话。</b>
+</p>
+
+<p align="center">如果你也想把大肥鱼装进口袋，<a href="https://apps.apple.com/app/id6830703602"><b>从 App Store 下载</b></a>，再点个 ⭐ 支持一下吧。想先试新版本的话，可以<a href="https://testflight.apple.com/join/2SCftb2M">加入 TestFlight 公测</a>。</p>
+
+<p align="center"><a href="https://fish.deepseek1024.com">官网</a> · <a href="README.en.md">English</a></p>
+
+## 看它干活
+
+<table>
+<tr>
+<td align="center" width="33%"><img src="docs/assets/demo-market.gif" width="250" alt="在插件市场里找到 cc-safety-net，安装并启用；回到对话后，智能体要执行 git reset --hard，被这个插件拦下"><br/><b>插件市场</b><br/><sub>在手机上装一个安全网插件，危险命令当场被拦下</sub></td>
+<td align="center" width="33%"><img src="docs/assets/demo-native.gif" width="250" alt="一句话让智能体把评审会加进系统日历，再建一条提醒，随后在日历 App 里看到这条日程"><br/><b>本机能力</b><br/><sub>说一句话，日程就进了系统日历，提醒也建好了</sub></td>
+<td align="center" width="33%"><img src="docs/assets/demo-widget.gif" width="250" alt="任务运行时回到主屏幕，小组件和灵动岛显示这个会话正在进行，点小组件回到会话"><br/><b>小组件和灵动岛</b><br/><sub>切到后台任务照样跑，进度在主屏幕上看</sub></td>
+</tr>
+</table>
+
+<table>
+<tr>
+<td align="center" width="50%"><img src="docs/assets/demo-phone.gif" width="250" alt="让智能体打开设置把外观换成深色模式；它通过 iCTRL 进入设置的外观页，点选深色，整台手机变成深色后回到 Fish Pocket 报告结果，消息下方附上这次的操作录像"><br/><b>操控手机</b><br/><sub>说一句话，它自己去设置里点好，再回来告诉你，附上操作录像</sub></td>
+<td align="center" width="50%"><img src="docs/assets/demo-browser.gif" width="250" alt="让智能体用内置浏览器在 B 站搜猫咪；网页上亮起光效和指针，它一边往下刷一边切到按播放量排序，最后回到对话列出播放最多的三个视频"><br/><b>操控内置浏览器</b><br/><sub>替你刷 B 站、抖音这些网站，翻完把要点整理回对话</sub></td>
+</tr>
+</table>
+
+<p align="center">
+  <img src="docs/assets/demo-bot.gif" width="250" alt="新建一个 Bot，给它挑形象和颜色；在聊天里让它查今天的科技新闻，它的头像边搜索边动，查完把三条新闻发回来；最后打开连接器页面，里面是 GitHub、Notion 等可以连接的服务">
+  <br/>
+  <b>Bot 模式</b>
+  <br/>
+  <sub>建一个 Bot，交代一件事，它自己联网查完再回你；常用的服务在连接器里连一次就行</sub>
+</p>
+
+<p align="center">
+  <img src="docs/assets/demo-ipad.gif" width="840" alt="iPad 上两个 Fish Pocket 窗口并排，各自运行一个会话：左边给贪吃蛇加排行榜，右边初始化 Git 仓库并提交">
+  <br/>
+  <b>iPad 多窗口</b>
+  <br/>
+  <sub>两个窗口并排，各跑各的会话：左边改游戏，右边提交代码</sub>
+</p>
+
+<p align="center">
+  <img src="docs/assets/demo-duo.gif" width="840" alt="iPhone Duo 合上时在外屏让智能体用 Python 生成本月的日历，展开后同一个会话在内屏接着跑，左边多出会话侧栏，最后给出标好周末的日历">
+  <br/>
+  <b>iPhone Duo</b>
+  <br/>
+  <sub>合上时在外屏发起任务，展开后同一个会话接着跑，侧栏和对话并排</sub>
+</p>
+
+<p align="center">
+  <img src="docs/assets/demo-watch.gif" width="840" alt="在 iPhone 上发出任务后回到主屏幕；旁边 Apple Watch 上的大肥鱼先显示正在干活，再提示等你答复，在手表上点开审批并允许后任务继续，跑完时手表弹出完成卡">
+  <br/>
+  <b>Apple Watch</b>
+  <br/>
+  <sub>放下手机，抬腕就知道它干到哪了：审批在手表上点，跑完大肥鱼叫你一声</sub>
+</p>
+
+<p align="center"><sub>以上都是实际运行的录屏，等待的部分剪掉或加了速。</sub></p>
+
+## 能做什么
+
+- **能用 iPhone 自带的能力：** 智能体直接查日历、建提醒、读健康数据、找联系人、搜地图，每一项都由你自己开启。见[本机能力](#本机能力)。
+- **操控手机：** 装好开源的 [iCTRL](https://github.com/OpenMinis/iCTRL) 后，智能体可以打开别的 App，替你点按、输入、读取屏幕，做完回到对话里告诉你结果，操作过程录成视频放在对话里。iPhone 和 iPad 都能用。见[操控手机](#操控手机)。
+- **做自己的小工具：** 在对话里让智能体做个小工具或小游戏，做好就出现在「Mini Apps」里，点开就用，也能放到主屏幕上。见[做自己的小工具](#做自己的小工具)。
+- **搬来 DeepSeek 的聊天记录：** 在 DeepSeek 官网导出聊天记录，新会话页点「导入 DeepSeek 会话」，以前的对话连同思考过程和图片都进到会话列表里，点开就能接着聊。
+- **Bot 模式：** 一支常驻的 Bot 团队。每个 Bot 有自己的形象、记忆和工作文件夹，可以私聊，可以拉群一起商量，也可以到点自己开工。后台是开源的 [DS Bot](https://github.com/Fei2411/DS-Bot)，界面全部原生重写。见 [Bot 模式](#bot-模式)。
+- **远程控制：** 电脑和服务器上的 Codex、Claude Code 和 DeepSeek Harness 会话也能在手机上管，和本机会话放在同一个会话列表里，跟进进度、接着聊、回应审批、随时打断。见[远程控制](#远程控制)。
+- **功能对齐官方 Web UI：** 对话、工具调用、文件编辑、搜索、计划模式、审批、子智能体、智能体团队协作、定时任务和插件，DSH 官方 Web UI 能做的这里都能做。新会话选「创造模式」，还能让智能体替你写插件。
+- **完全原生的界面：** 对话、审批、工作台、插件和设置都用 SwiftUI 重写，交互按 iOS 习惯设计，不是把网页塞进 WebView。首页是系统的标签栏：会话、Bot、Mini Apps、探索、设置一点就到。支持深色模式，可以跟随系统，也可以在设置里手动切换。官方 Web UI 也保留着，需要时可以在设置里打开。
+- **真能用的终端：** 内置 bash、`node`、`pnpm`、`python3`、`pip`、`git`、`ffmpeg`，还有 `rg`、`jq`、`curl`、`sed`、`awk` 等常用命令。Node、Git、Python 和 FFmpeg 都是原生代码，不经过模拟器，比 iOS 上的 Linux 模拟器（iSH、UTM SE）快得多。
+- **内置 Python：** Python 3.15 直接嵌在 App 里，标准库齐全，`pip install` 能装纯 Python 的包，`venv` 也能用。带编译扩展的包（numpy、pandas 等）暂时装不了。
+- **内置 Git：** 基于静态链接的 libgit2，不靠子进程。`clone`、`commit`、`branch`、`merge`、`stash`、`pull`、`push` 等日常操作都能用，输出和真 git 一致，Agent 照常读懂。私有仓库用 HTTPS 加 Token 认证。
+- **内置 FFmpeg：** `ffmpeg` 和 `ffprobe` 编进 App，能读几乎所有音视频格式（包括 iPhone 拍的 HEVC 视频和 MKV、WebM），能抽帧、抽音轨、剪辑、转码，FFmpeg 自带的滤镜都能用。H.264、HEVC 编码走手机的硬件编码器。没有 x264、VP9、MP3 编码。
+- **DSH 插件：** 在手机上安装和管理 DSH 插件，装完就能用，不用回到电脑前。App 不提供插件市场；「索引源」里列了两个第三方示例索引源，可以自行甄别后启用，也可以添加自己信任的索引源，或者直接从 npm 安装纯 JavaScript 插件。
+- **工作台：** 终端、文件预览、内置浏览器和改动查看都放在一个面板里。内置浏览器支持多标签页，智能体也能直接操作网页：点按、输入、截图、带登录态请求、上传下载文件。
+- **语音输入和朗读：** 按住输入栏说话，松手转成文字发出去，识别可以用 DeepSeek 或火山引擎；回复可以用 DeepSeek 语音朗读，女声男声可选。都用你自己的 API Key。
+- **iOS 专属体验：** 灵动岛和锁屏 Live Activity，主屏幕和锁屏小组件，控制中心按钮，Siri 和快捷指令，从微信等 App 分享进新对话、Bot 或群聊，把几轮对话分享成一张长图（密钥自动打码），切到后台任务也能继续。
+- **iPad 和 iPhone Duo 适配：** 系统的自适应 Tab（顶部 Tab 栏或侧边栏）、会话列表和对话并排、右侧工作台、多窗口、拖放文件，外接键盘支持常用快捷键。iPhone Duo 合上用外屏、展开铺满内屏，会话不中断。
+- **更私密：** 会话和工作区留在设备上。
+
+模型调用仍然需要联网，用 DeepSeek 账号或 API Key 都可以。都没有的话，可以登录 Fish Pocket 账号，用 App 内购买的额度对话，按用量扣积分，买了不会过期（仅 App Store 和 TestFlight 版本）。
+
+## 本机能力
+
+引擎就跑在手机里，所以智能体能直接用 iPhone 自带的能力。说一句「明天下午 3 点约了牙医，记进日历，提前一小时提醒我」，日程和提醒就出现在系统自带的 App 里。
+
+**日历 · 提醒事项 · 闹钟 · 通讯录 · 健康 · 照片 · 文件 · 音乐 · 位置 · 地图 · 智能家居 · 邮件和短信**，还有图像识别、语音转写等本机识别。
+
+每一项都要你自己在「探索 → 本机能力」（iOS 17 的 iPad 上在侧边栏）中开启，没开的智能体用不了。开启后你装的插件也能用，用过哪些有记录可查。
+
+## 操控手机
+
+装好开源 App [iCTRL](https://github.com/OpenMinis/iCTRL) 之后，智能体可以替你操作其他 App：打开计算器算一笔账、在设置里找一项开关、在外卖 App 里把菜加进购物车。它先读屏幕再动手，每点一下都核对画面有没有变；能用[本机能力](#本机能力)办的事，它不会去点界面。
+
+- **要紧的事先问你：** 付款、删除、替你发消息之前一定先问，密码、验证码和人机验证留给你自己。做完或者要问你的时候，它会先切回 Fish Pocket 再说。
+- **随时能停：** 操作时屏幕顶部有 iOS 的「Automation Running」提示，同时按住两个音量键就停。
+- **只在这台手机上：** iCTRL 的服务只在本机监听，它自带的远程访问建议一直关着。智能体看到的其他 App 画面会随对话发给你选的模型服务商。
+- **过程看得见：** 智能体操作其他 App 时会把屏幕录下来放在对话里，默认两倍速回看；分享时生成一段带 Fish Pocket 外框的视频。
+
+这是可选的高级功能，iPhone 和 iPad 都能用。iCTRL 是第三方开源 App，不是 Fish Pocket 提供的，需要 iOS 17.4 或更高版本、打开开发者模式并侧载；免费 Apple ID 就够，第一次设置要用一次电脑。装好后「探索」里的「操控手机」（iOS 17 的 iPad 上在侧边栏）显示「运行中」就能用。完整步骤见官网的[设置教程](https://fish.deepseek1024.com/phone-control/)。
+
+## 做自己的小工具
+
+在对话里说一句「做个倒数日，记着离过年还有几天」，智能体写好页面，它就出现在「Mini Apps」里，点开就能用，也能放到主屏幕上。小工具、小游戏、记账本都行，不满意接着在对话里让它改。
+
+- **点开就用：** 打开的是做好的版本，不用等编译，也不用启动引擎；智能体改到一半时，你打开的还是上一次做好的那版。
+- **各自隔离：** 每个 Mini App 有自己的存储，删掉时一起删；能联网，但碰不到手机上的其他数据和本机能力。
+- **入口多：** 「Mini Apps」标签页、聊天里的卡片、「Mini Apps」小组件和快捷指令都能打开。
+
+先试试自带的倒数日、番茄钟和水果翻翻。
+
+操控手机建立在 [iCTRL](https://github.com/OpenMinis/iCTRL) 之上，感谢 OpenMinis 把它开源出来。
+
+## Bot 模式
+
+一支常驻在口袋里的 Bot 团队。每个 Bot 有自己的形象、记忆和工作文件夹：可以单独私聊派活，可以拉几个进群一起商量，也可以设好时间让它到点自己开工。干活时头像跟着状态动，正在思考、在搜索还是等你答复，一眼就能看出来。
+
+GitHub、Notion 这些服务在连接器里连一次，普通会话和 Bot 都能用。在微信、相册、Safari 里点「分享」，内容也能直接交给某个 Bot 或群聊。
+
+后台是开源的 [DS Bot](https://github.com/Fei2411/DS-Bot)。Fish Pocket 只用它的接口，建 Bot、私聊、群聊、定时任务和连接器的界面都用 SwiftUI 原生重写，不用打开网页版。
+
+## 远程控制
+
+电脑和服务器上的智能体也能在手机上管。登录 [Agents Anywhere](https://github.com/anywhere-labs/Agents-Anywhere) 后，那台机器上的 Codex、Claude Code 和 DeepSeek Harness 会话和本机会话出现在同一个会话列表里：跟进进度、接着聊、回应审批、随时打断，也能直接在那台机器上开新会话。锁屏、灵动岛和小组件对远程会话一视同仁。
+
+个人电脑装上 Agents Anywhere 桌面应用，在 App 里扫码登录就行，不需要公网 IP；没有图形界面的云服务器跑它的 Connector。手机和那台机器之间经 Agents Anywhere 的服务器转发，可以用官方云服务，也可以自己部署。这是可选功能，不登录什么都不会发生，本机会话始终留在手机上。详细步骤见[远程控制说明](docs/remote-control.md)。
+
+## 和 DSH 官方 Web UI 的对比
+
+功能和 DSH 官方 Web UI 对齐，官方能做的这里都能做，界面则用 SwiftUI 完全重写，iPhone 和 iPad 各按自己的习惯适配。在这之上还有官方没有的：本机能力、操控手机、做自己的小工具、灵动岛和锁屏 Live Activity、小组件、Siri 和快捷指令、切到后台继续跑、iPad 多窗口、原生界面的 Bot 模式，以及远程控制。
+
+## 快速开始
+
+直接安装，需要 iOS 17 或更高版本：
+
+- **App Store（推荐）**：[在 App Store 下载](https://apps.apple.com/app/id6830703602)。每个版本都要等苹果审核，所以会比 TestFlight 和开源仓库晚一些。
+- **TestFlight（想先试新版本）**：在 iPhone 或 iPad 上打开 [TestFlight 公测链接](https://testflight.apple.com/join/2SCftb2M)。新版本最先发到这里，和开源仓库保持同步。
+
+自己编译：你需要 macOS、Xcode 27 或更高版本、Node 24 和 `xcodegen`，构建 libgit2 还需要 `cmake` 或 `uv`。要在 iPhone Duo 上铺满屏幕，需要用 Xcode 27.1 或更高版本编译，更早的版本编出来的包在 Duo 上只按普通 iPhone 的大小显示。
+
+```bash
+git clone https://github.com/imsai-sh/fish-pocket.git
+```
+
+```bash
+cd fish-pocket && scripts/run-sim.sh
+```
+
+脚本会自动下载 nodejs-mobile、Python 和预编译的 FFmpeg、构建 libgit2、组装引擎，然后装到模拟器上运行。默认设备是 `iPhone 17 Pro`，可以用 `SIM_DEVICE` 指定。
+
+想装到真机上，先把 `app/project.yml` 和 `scripts/run-device.sh` 里的 `com.wsw.dsh-ios` 换成你自己的 Bundle ID，再运行：
+
+```bash
+DEVELOPMENT_TEAM=<你的团队 ID> scripts/run-device.sh
+```
+
+## 怎么做到的
+
+iOS 不允许 App 创建子进程，也不允许运行下载的二进制。所以这里不模拟 Linux 虚拟机，而是把 Node、Python 这些运行时以原生代码嵌进 App，再用 DSH 自己的服务接缝换掉“执行世界”。引擎文件一行都没改。
+
+原生嵌入的组件：
+
+| 组件 | 怎么嵌进 App | 给智能体提供 |
+|---|---|---|
+| Node 24（[nodejs-mobile](https://github.com/nodejs-mobile/nodejs-mobile)） | 预编译的动态框架，引擎跑在它上面；`node`、`pnpm` 各开一个 Worker 线程 | 引擎本身、`node`、`pnpm`、`pnpx` |
+| Python 3.15（python.org 官方 iOS 构建） | 动态框架，每个 Python 进程是一个子解释器，跑在自己的线程上 | `python3`、`pip`、`venv` |
+| [libgit2](https://github.com/libgit2/libgit2) 1.9 | 静态链接，通过 N-API 调用 | `git` |
+| [FFmpeg](https://ffmpeg.org) 9.0 | 从官方源码编译成动态框架（LGPL），预编译包放在本仓库的 Release 里，每次运行一个线程，同一时间只跑一个 | `ffmpeg`、`ffprobe` |
+| 系统框架（ImageIO、Vision、EventKit、HealthKit 等） | 通过 N-API 桥接 | 图片处理和[本机能力](#本机能力) |
+
+iOS 不允许起子进程，所以这些运行时的“进程”都是 App 里的线程：每个有自己的管道、工作目录和退出处理。它们共用一层路径视图（`native/root`），看到的文件和引擎完全一致。
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/architecture-zh-dark.svg">
+    <img src="docs/assets/architecture-zh.svg" width="100%" alt="Fish Pocket 架构：SwiftUI 界面通过本地 HTTP 连接 App 内的 DSH 引擎，引擎再把 bash、node、git 和原生 addon 分别交给 just-bash、Worker 线程、libgit2 和纯 JS 替身">
+  </picture>
+</p>
+
+## 插件兼容性
+
+我们按下载量从 DSH 社区抽取了前 50 个第三方插件作为样本，在 iOS 引擎上逐个走完安装、启用、冷启动和卸载。**这只是抽样，不代表只支持这 50 个，其他插件同样可以安装。**
+
+| 结果 | 数量 |
+|---|---:|
+| 直接可用 | 42 |
+| 允许或跳过安装脚本、指定版本或重启 App 后可用 | 6 |
+| 暂不可用 | 2 |
+
+这里的“可用”指插件能被引擎加载，功能没有逐个试用。逐个插件的结果见 [#18](https://github.com/imsai-sh/fish-pocket/issues/18)。
+
+## 常见问题
+
+### Fish Pocket 是什么？
+
+Fish Pocket 是一款开源的 iOS App，把 DeepSeek Harness（简称 DSH）的整个 Agent 引擎装进 iPhone 和 iPad，在本机运行。不用连电脑，也不用连服务器，界面用 SwiftUI 原生重写。
+
+### Fish Pocket 和 DSH 官方 Web UI 有什么区别？
+
+功能对齐，官方 Web UI 能做的 Fish Pocket 都能做。区别是引擎跑在手机和平板本机，不用开电脑；界面用 SwiftUI 重写，是 iPhone 和 iPad 的原生体验；还多了本机能力、灵动岛、小组件、Siri 和 iPad 多窗口这些官方没有的功能。
+
+### 用 Fish Pocket 要开着电脑吗？
+
+不用。远程客户端需要一台一直开着联网的电脑，Fish Pocket 的引擎就在 App 里，有手机就能用。只有调用模型时需要联网。
+
+### Fish Pocket 收费吗？
+
+App 免费，代码以 MIT 协议开源，商用需要先取得授权，见[许可证](#许可证)。模型调用可以用你自己的 DeepSeek 账号或 API Key，费用由模型服务商收取，不经过 Fish Pocket；也可以在 App Store 和 TestFlight 版本里登录 Fish Pocket 账号，购买额度使用，这是可选的。
+
+### 中国大陆能用吗？
+
+能。在 App Store 下载就行。想先试新版本的话，也可以用 TestFlight 公测。
+
+### 我的对话和代码会被上传吗？
+
+不登录 Fish Pocket 账号就不会传给我们。会话和工作区留在你的设备上，模型请求直接发给你选择的服务商，详见[隐私政策](PRIVACY.md)。
+
+登录 Fish Pocket 账号用额度对话时，请求经 Fish Pocket 服务器转发给提供 DeepSeek 模型的服务商，服务器只读取用量用于计费，不保存对话内容。
+
+远程控制是例外，而且要你自己登录才会开启：电脑上的会话经 Agents Anywhere 的服务器（官方云服务或你自己部署的）转发，本机的会话不受影响。电脑和云服务器怎么连，见[远程控制说明](docs/remote-control.md)。
+
+### 智能体能看到我的日历、健康数据和照片吗？
+
+只有你在「本机能力」里开启对应的那一项之后才能，没开的它用不了。用到时，读到的内容会随对话发给你选择的模型服务商。健康、通讯录和照片只读不写。
+
+### 只能用 DeepSeek 的模型吗？
+
+默认使用 DeepSeek，用账号登录或者填 API Key 都可以，也可以配置其他模型服务商，或者登录 Fish Pocket 账号用额度。
+
+### Fish Pocket 是 DeepSeek 官方出的吗？
+
+不是。这是独立的开源社区项目，与深度求索（DeepSeek）不存在隶属、合作、授权或背书关系。
+
+更多问答见[官网](https://fish.deepseek1024.com/#faq)。
+
+## 路线图
+
+- [x] 抽样测试社区热门插件的兼容性
+- [x] 原生界面支持英文，搭好多语言框架
+- [x] 界面支持西班牙语（[#24](https://github.com/imsai-sh/fish-pocket/issues/24)），设置里可以直接切换界面语言
+- [x] 界面支持日语和韩语（[#120](https://github.com/imsai-sh/fish-pocket/issues/120)）
+- [x] 界面支持繁体中文，用词按台湾习惯
+- [ ] 确定插件兼容分级和适配规范（[#4](https://github.com/imsai-sh/fish-pocket/issues/4)）
+- [x] 预置第三方插件商店（[#5](https://github.com/imsai-sh/fish-pocket/issues/5)）
+- [x] 智能体可以使用 iPhone 的本机能力：日历、提醒事项、健康、照片、地图等
+- [x] 内置 Python 3.15，支持 pip 和 venv
+- [x] 内置 FFmpeg：`ffmpeg`、`ffprobe`
+- [x] 远程控制：在手机上管电脑和服务器里的 Codex、Claude Code 和 DSH 会话，锁屏、灵动岛和小组件与本机会话同等对待（对接 Agents Anywhere）
+- [ ] bash 解释器移出引擎线程
+- [x] Bot 模式：在聊天里给口袋里的 Agent 派任务
+- [x] 操控手机：对接 iCTRL，智能体替你点按其他 App
+- [x] 做自己的小工具：在对话里做小工具、小游戏，放到主屏幕上
+- [x] 语音：按住说话转文字，回复可以朗读
+- [x] 系统分享：在微信、相册、Safari 里点「分享」，文字、链接、图片和文件进新对话、某个 Bot 或群聊（[#57](https://github.com/imsai-sh/fish-pocket/issues/57)）
+
+## 交流群
+
+<p align="center">
+  <img src="docs/assets/wechat-group.png" width="260" alt="Fish Pocket 微信交流群二维码">
+</p>
+
+<p align="center">微信扫码加入 Fish Pocket 交流群。</p>
+
+<p align="center">也可以加入我们的 <a href="https://discord.gg/VSzN4jUwWm">Discord 社区</a>。</p>
+
+## 参与贡献
+
+欢迎提 issue 和 PR，让你的 Agent 看 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+## 致谢
+Fish Pocket 站在这些优秀项目的肩膀上:
+- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)：引擎本身，一切的基础，Agent时代的操作系统
+- [DSH Go](https://github.com/ccch1mneyyy/dsh-go)，Android上的DSH引擎，是它启发我们做了这个 iOS 版本
+- [DS Bot](https://github.com/Fei2411/DS-Bot)：Bot 功能的后台，常驻的 Bot 团队、群聊、记忆和定时任务都靠它。感谢 Fei2411 和社区贡献者
+- [Agents Anywhere](https://github.com/anywhere-labs/Agents-Anywhere)：远程控制对接的开源工作台，电脑端和服务器都是它的
+- [nodejs-mobile](https://github.com/nodejs-mobile/nodejs-mobile) 及其 [digidem 分支](https://github.com/digidem/nodejs-mobile)：让 Node 24 跑在 iOS 上
+- [CPython](https://github.com/python/cpython)：python.org 官方的 iOS 构建，App 内的 Python
+- [just-bash](https://github.com/vercel-labs/just-bash)：TypeScript 写的 bash 解释器
+- [libgit2](https://github.com/libgit2/libgit2)：App 内的 git 能力
+- [FFmpeg](https://ffmpeg.org)：App 内的音视频处理，按 LGPL 以动态框架使用
+- [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm)：终端界面
+- [a-Shell](https://github.com/holzschu/a-shell)：证明了 iOS 上可以有真正好用的本地终端
+- [iCTRL](https://github.com/OpenMinis/iCTRL)：操控手机对接的开源 App，替智能体点按、输入、读取屏幕，没有它就没有操控手机这个功能
+- [page-agent](https://github.com/alibaba/page-agent)：智能体操作内置浏览器时读网页、点击和输入都靠它的 page controller，操作时网页上的光效、指针和状态面板也来自它
+- [OpenMinis](https://github.com/OpenMinis/OpenMinis)：跑在手机上的 AI Agent，本机能力的分类和权限档位参考了它的设计
+
+也感谢 DSH 社区的朋友们，“大肥鱼”这个外号来自大家的二创。吉祥物鲸鱼娘的原始角色来自[上善无形](https://space.bilibili.com/4456176)，女仆版二次设计来自 [ZipZipPipe](https://www.pixiv.net/artworks/148186519)。第三方许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+## 作者
+
+由 [sai](https://imsai.cc) 开发，更多内容见[个人主页](https://imsai.cc)。
+
+我的其他开源项目：
+
+- [awesome-deepseek-harness-plugins](https://github.com/imsai-sh/awesome-deepseek-harness-plugins)：DSH 插件商店与导航，收录 11000+ 插件（[deepseek1024.com](https://deepseek1024.com/)）
+- [竹知了](https://github.com/imsai-sh/zhuzhiliao)：一转就哇哇叫的传统玩具，Web 模拟版
+
+## 许可证
+
+**欢迎自用，没有任何限制。** 下载、编译、阅读、修改，自己怎么用都行，不用打招呼，给本仓库提 PR 也一样。
+
+代码使用 [MIT](LICENSE) 许可证。只有拿去商用或者公开发布改造版时，才有三条附加限制：
+
+1. **商用先拿授权。** 把 Fish Pocket 或它的改造版拿去卖、收费分发、加内购或广告、打包进收费的产品或服务之前，要先取得作者的书面授权，请[提 issue](https://github.com/imsai-sh/fish-pocket/issues) 联系。自己用它干活不算商用。
+2. **改造先提 issue。** 公开发布改造版之前，先[提 issue](https://github.com/imsai-sh/fish-pocket/issues) 说明改了什么、做什么用、打算怎么发。
+3. **写明出处，换掉名字。** 改造版要写明基于 Fish Pocket 并附上本仓库链接，同时换成自己的名称和图标，不能当作官方版本发布。
+
+条款原文在 [LICENSE](LICENSE) 末尾。
+
+吉祥物图片（App 图标、启动图和 README 头图）不适用 MIT，它们基于他人作品，按 [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) 使用，**不可商用**。拿到商用授权后也要先换掉这些图片，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+---
+
+> 这是独立的社区项目，与深度求索（DeepSeek）不存在隶属、合作、授权或背书关系。“大肥鱼”是社区对 DeepSeek 的昵称。吉祥物基于社区二创的鲸鱼娘形象，用 AI 重新生成了表情，原形象版权归上善无形和 ZipZipPipe，没有使用 DeepSeek 的 Logo。

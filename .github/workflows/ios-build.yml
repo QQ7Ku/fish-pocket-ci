@@ -1,0 +1,327 @@
+# Build Fish Pocket on GitHub's macOS 27 (Xcode 27) arm64 runner.
+#
+# Two products, neither of them signed:
+#   1. an iOS Simulator build, the compile gate this repository already had;
+#   2. an iOS device (arm64) build packaged as an unsigned IPA.
+# The IPA is meant to be re-signed and installed locally on the iPad with the
+# user's own Apple ID or Apple Developer certificate (BuildBox / TanaraSign /
+# ESign). No signing certificate, provisioning profile or Apple account is
+# needed for this workflow: CODE_SIGNING_ALLOWED=NO is passed to xcodebuild.
+#
+# The scheme is never guessed: `xcodebuild -list` is run first, its actual
+# output is written to the log and the job summary, and the build aborts if the
+# list is empty, errors, or does not contain the DshIOS scheme.
+#
+# The steps mirror scripts/run-sim.sh up to `xcodebuild build`: fetch
+# nodejs-mobile, Python and FFmpeg, build libgit2, assemble the engine tree,
+# generate the project with xcodegen, compile.
+name: iOS build
+
+on:
+  pull_request:
+    branches: [main, release]
+    paths-ignore: ["docs/**", "**/*.md"]
+  push:
+    branches: [main]
+    paths-ignore: ["docs/**", "**/*.md"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # GitHub's macOS 27 image, arm64 only (the vendored xcframeworks are arm64).
+    # `xcode-27-xlarge` is an accepted alternative.
+    runs-on: xcode-27
+    timeout-minutes: 90
+    env:
+      SCHEME: DshIOS
+      ARTIFACT_NAME: fish-pocket-unsigned-ios
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Runner must be arm64
+        run: |
+          set -euo pipefail
+          arch="$(uname -m)"
+          echo "runner arch: $arch"
+          df -h /
+          if [ "$arch" != "arm64" ]; then
+            echo "::error::This workflow needs an arm64 runner (xcode-27 / xcode-27-xlarge); got $arch."
+            exit 1
+          fi
+
+      - name: Select Xcode 27
+        run: |
+          set -euo pipefail
+          # The image ships one or more Xcode_27*.app bundles; take the newest.
+          shopt -s nullglob
+          apps=(/Applications/Xcode_27*.app)
+          if [ ${#apps[@]} -eq 0 ]; then
+            echo "::error::No /Applications/Xcode_27*.app on this runner."
+            find /Applications -maxdepth 1 -name 'Xcode*.app' -print | sed 's/^/  /'
+            exit 1
+          fi
+          app="$(printf '%s\n' "${apps[@]}" | sort -V | tail -n 1)"
+          echo "selecting: $app"
+          sudo xcode-select -s "$app"
+          xcodebuild -version
+          xcode-select -p
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: engine/package-lock.json
+
+      - name: Install xcodegen and cmake
+        run: |
+          set -euo pipefail
+          export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1
+          for tool in xcodegen cmake; do
+            for _ in 1 2 3; do
+              command -v "$tool" >/dev/null && break
+              brew install "$tool" || sleep 10
+            done
+            command -v "$tool" >/dev/null || {
+              echo "::error::Could not install $tool with Homebrew."
+              exit 1
+            }
+          done
+          xcodegen --version
+          cmake --version
+
+      - name: Cache nodejs-mobile
+        id: nodejs-mobile
+        uses: actions/cache@v5
+        with:
+          path: |
+            vendor/nodejs-mobile/ios
+            vendor/nodejs-mobile/rooted
+          key: nodejs-mobile-${{ hashFiles('scripts/fetch-nodejs-mobile.sh') }}
+
+      - name: Fetch nodejs-mobile
+        if: steps.nodejs-mobile.outputs.cache-hit != 'true'
+        run: scripts/fetch-nodejs-mobile.sh
+
+      - name: Cache Python
+        id: python
+        uses: actions/cache@v5
+        with:
+          path: |
+            vendor/python/ios
+            vendor/python/rooted
+          key: python-${{ hashFiles('scripts/fetch-python.sh') }}
+
+      - name: Fetch Python
+        if: steps.python.outputs.cache-hit != 'true'
+        run: scripts/fetch-python.sh
+
+      # A path function new to Node would slip past native/root: stop here instead.
+      - name: Check NodeMobile imports
+        run: scripts/check-root-imports.sh
+
+      # Only the installed slices and the xcframework; the source and build trees stay out.
+      - name: Cache libgit2
+        id: libgit2
+        uses: actions/cache@v5
+        with:
+          path: |
+            vendor/libgit2/Libgit2.xcframework
+            vendor/libgit2/ios-arm64
+            vendor/libgit2/ios-arm64-simulator
+            vendor/libgit2/macos
+          key: libgit2-${{ runner.os }}-${{ hashFiles('scripts/build-libgit2.sh') }}
+
+      - name: Build libgit2
+        if: steps.libgit2.outputs.cache-hit != 'true'
+        run: scripts/build-libgit2.sh
+
+      # Only the xcframework; the download, source and build trees stay out.
+      - name: Cache FFmpeg
+        id: ffmpeg
+        uses: actions/cache@v5
+        with:
+          path: vendor/ffmpeg/FFmpeg.xcframework
+          key: ffmpeg-${{ runner.os }}-${{ hashFiles('scripts/fetch-ffmpeg.sh', 'scripts/build-ffmpeg.sh', 'native/ffmpeg/**') }}
+
+      # The published framework, or a build from source when native/ffmpeg changed since.
+      - name: Fetch FFmpeg
+        if: steps.ffmpeg.outputs.cache-hit != 'true'
+        run: scripts/fetch-ffmpeg.sh
+
+      - name: Assemble engine
+        run: scripts/build-engine.sh
+
+      - name: Generate Xcode project
+        working-directory: app
+        run: |
+          set -euo pipefail
+          xcodegen generate --quiet
+          test -d DshIOS.xcodeproj
+          echo "generated: $(pwd)/DshIOS.xcodeproj"
+
+      # Required before anything is built. If this step cannot prove that a
+      # scheme exists, the job stops: the scheme is never guessed.
+      - name: Confirm scheme with xcodebuild -list
+        working-directory: app
+        run: |
+          set -euo pipefail
+          list="$GITHUB_WORKSPACE/xcodebuild-list.txt"
+          json="$GITHUB_WORKSPACE/xcodebuild-list.json"
+
+          echo "=== xcodebuild -list ==="
+          xcodebuild -list -project DshIOS.xcodeproj 2>&1 | tee "$list"
+
+          {
+            echo "### xcodebuild -list"
+            echo '```'
+            cat "$list"
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+          xcodebuild -list -json -project DshIOS.xcodeproj >"$json" 2>/dev/null
+
+          python3 - "$json" "$SCHEME" <<'PY'
+          import json, sys
+
+          raw = open(sys.argv[1], encoding="utf-8").read()
+          start = raw.find("{")
+          if start < 0:
+              print("::error::xcodebuild -list -json produced no JSON; aborting.")
+              sys.exit(1)
+
+          data = json.loads(raw[start:])
+          project = data["project"]
+          schemes = project.get("schemes") or []
+          print("actual schemes:", ", ".join(schemes) if schemes else "<none>")
+
+          if not schemes:
+              print("::error::xcodebuild -list listed no scheme; aborting without guessing.")
+              sys.exit(1)
+          if sys.argv[2] not in schemes:
+              print(f"::error::Scheme {sys.argv[2]!r} is not in the actual list; aborting.")
+              sys.exit(1)
+          print(f"confirmed scheme: {sys.argv[2]}")
+          PY
+
+      # The vendored xcframeworks are arm64 only; a generic destination would add x86_64.
+      - name: Compile (iOS simulator, unsigned)
+        working-directory: app
+        run: |
+          set -o pipefail
+          xcodebuild -project DshIOS.xcodeproj -scheme "$SCHEME" \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/DerivedData -skipPackagePluginValidation \
+            ARCHS=arm64 CODE_SIGNING_ALLOWED=NO \
+            build -quiet 2>&1 | tee "$GITHUB_WORKSPACE/simulator-build.log"
+
+      # Device build, no signing at all. The IPA is re-signed later on the iPad.
+      - name: Compile unsigned IPA (iOS device, arm64)
+        working-directory: app
+        run: |
+          set -o pipefail
+          # The simulator DerivedData is no longer needed and the runner disk is small.
+          rm -rf build/DerivedData
+          xcodebuild -project DshIOS.xcodeproj -scheme "$SCHEME" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/DerivedData-device \
+            -skipPackagePluginValidation -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee "$GITHUB_WORKSPACE/device-build.log"
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          APP="app/build/DerivedData-device/Build/Products/Release-iphoneos/DshIOS.app"
+          if [ ! -d "$APP" ]; then
+            echo "::error::$APP was not produced."
+            find app/build/DerivedData-device/Build/Products -maxdepth 3 -name '*.app' -print 2>/dev/null || true
+            exit 1
+          fi
+
+          rm -rf dist
+          mkdir -p dist/Payload
+          ditto "$APP" "dist/Payload/DshIOS.app"
+          ditto -c -k --sequesterRsrc --keepParent "dist/Payload" "dist/fish-pocket-unsigned.ipa"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "dist/DshIOS-unsigned.app.zip"
+
+          {
+            echo "repository=https://github.com/${GITHUB_REPOSITORY}"
+            echo "commit=$(git rev-parse HEAD)"
+            echo "run=https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "runner_arch=$(uname -m)"
+            echo "xcode=$(xcodebuild -version | tr '\n' ' ')"
+            echo "scheme=$SCHEME"
+            echo "ipa=fish-pocket-unsigned.ipa"
+            echo "ipa_sha256=$(shasum -a 256 dist/fish-pocket-unsigned.ipa | awk '{print $1}')"
+            echo "app_zip=DshIOS-unsigned.app.zip"
+            echo "app_zip_sha256=$(shasum -a 256 dist/DshIOS-unsigned.app.zip | awk '{print $1}')"
+          } | tee dist/build-info.txt
+
+          echo "=== IPA contents (first 20 entries) ==="
+          unzip -l dist/fish-pocket-unsigned.ipa > dist/ipa-contents.txt
+          sed -n '1,20p' dist/ipa-contents.txt
+
+          echo "=== main binary ==="
+          file "$APP/DshIOS"
+          lipo -info "$APP/DshIOS"
+
+          echo "=== signature check ==="
+          if codesign -dv "$APP" >/dev/null 2>&1; then
+            echo "::warning::codesign reports a signature on DshIOS.app; see build-info.txt"
+            codesign -dvv "$APP" 2>&1 | tee -a dist/build-info.txt || true
+          else
+            echo "DshIOS.app is unsigned (codesign found no signature)" | tee -a dist/build-info.txt
+          fi
+
+      - name: Upload unsigned IPA
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: |
+            dist/fish-pocket-unsigned.ipa
+            dist/DshIOS-unsigned.app.zip
+            dist/build-info.txt
+            dist/ipa-contents.txt
+            xcodebuild-list.txt
+            xcodebuild-list.json
+            simulator-build.log
+            device-build.log
+          if-no-files-found: error
+          retention-days: 14
+
+      # Keep the evidence even when a build step fails.
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}-failure-logs
+          path: |
+            xcodebuild-list.txt
+            xcodebuild-list.json
+            simulator-build.log
+            device-build.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Fish Pocket unsigned iOS build"
+            echo ""
+            echo "- runner: \`$(uname -m)\`"
+            echo "- Xcode: \`$(xcodebuild -version | sed -n '1p')\`"
+            echo "- scheme: \`$SCHEME\`"
+            echo "- artifact: \`$ARTIFACT_NAME\`"
+            echo "- files: \`fish-pocket-unsigned.ipa\`, \`DshIOS-unsigned.app.zip\`, \`build-info.txt\`"
+          } >>"$GITHUB_STEP_SUMMARY"
