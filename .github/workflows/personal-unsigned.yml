@@ -1,0 +1,70 @@
+# Fallback for local signing: a main-app-only IPA.
+# The full app has four bundles (main app, Live Activity, share extension, watch
+# app). Some on-device signers fail on the nested bundles/profiles. This workflow
+# removes PlugIns (the two .appex extensions) and the Watch app from the cleaned
+# unsigned IPA, leaving one app bundle plus its frameworks. It is NOT the full
+# Fish Pocket feature set: no widgets, share extension or Watch app.
+name: Personal unsigned IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  personal:
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Remove extensions and watch app
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -o clean.ipa \
+            https://github.com/QQ7Ku/fish-pocket-ci/releases/download/unsigned-clean-44980714851/fish-pocket-unsigned-clean.ipa
+          rm -rf work && mkdir work && cd work
+          unzip -q ../clean.ipa -d ipa
+          APP="ipa/Payload/DshIOS.app"
+          test -d "$APP"
+
+          echo "=== before ==="
+          find "$APP" -mindepth 1 -maxdepth 1 -type d -print | sort
+
+          for d in PlugIns Watch WatchKit Extensions; do
+            if [ -d "$APP/$d" ]; then
+              echo "removing $d"
+              rm -rf "$APP/$d"
+            fi
+          done
+          find "$APP" -mindepth 1 -name '*.appex' -type d -prune -exec rm -rf {} +
+
+          echo "=== after ==="
+          find "$APP" -mindepth 1 -maxdepth 1 -type d -print | sort
+
+          mkdir -p out
+          ditto -c -k --sequesterRsrc --keepParent ipa/Payload out/fish-pocket-personal-unsigned.ipa
+          shasum -a 256 out/fish-pocket-personal-unsigned.ipa | tee out/SHA256SUMS.txt
+          ls -lh out/fish-pocket-personal-unsigned.ipa
+
+      - name: Publish personal IPA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="personal-unsigned-${GITHUB_RUN_ID}"
+          gh release create "$tag" work/out/fish-pocket-personal-unsigned.ipa \
+            --repo "${{ github.repository }}" \
+            --title "Fish Pocket personal unsigned IPA (${GITHUB_RUN_ID})" \
+            --notes "Main app only. PlugIns (Live Activity + share extensions) and the Watch app were removed to simplify local signing. Unsigned: sign it with your own Apple Developer certificate or Apple ID on the iPad. This is a fallback, not the full feature set."
+          asset="https://github.com/${{ github.repository }}/releases/download/$tag/fish-pocket-personal-unsigned.ipa"
+          sha="$(awk '{print $1}' work/out/SHA256SUMS.txt)"
+          {
+            echo "### Personal unsigned IPA"
+            echo ""
+            echo "$asset"
+            echo ""
+            echo "SHA256: \`$sha\`"
+          } >>"$GITHUB_STEP_SUMMARY"
