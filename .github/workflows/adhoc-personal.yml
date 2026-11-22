@@ -1,0 +1,62 @@
+# Ad-hoc sign the personal (main-app-only) IPA.
+# The on-device signer failed with "CodeDirectory 与 Mach-O 不一致" on a completely
+# unsigned main binary: it had to add a signature load command and failed while
+# expanding it. An ad-hoc signature gives the main binary a valid
+# LC_CODE_SIGNATURE/CodeDirectory slot, which the signer can replace.
+# This IPA is still not installable as-is; it is only a better input for signing.
+name: Ad-hoc personal IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  adhoc:
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Ad-hoc sign and repack
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -o personal.ipa \
+            https://github.com/QQ7Ku/fish-pocket-ci/releases/download/personal-unsigned-44981637460/fish-pocket-personal-unsigned.ipa
+          rm -rf work && mkdir work && cd work
+          unzip -q ../personal.ipa -d ipa
+          APP="ipa/Payload/DshIOS.app"
+          test -d "$APP"
+
+          codesign --force --deep --sign - "$APP"
+          echo "=== codesign -dv ==="
+          codesign -dv "$APP" 2>&1 | tee codesign.txt
+          echo "=== codesign --verify ==="
+          codesign --verify --deep --strict "$APP" 2>&1 | tee verify.txt || true
+
+          mkdir -p out
+          ditto -c -k --sequesterRsrc --keepParent ipa/Payload out/fish-pocket-personal-adhoc.ipa
+          shasum -a 256 out/fish-pocket-personal-adhoc.ipa | tee out/SHA256SUMS.txt
+          ls -lh out/fish-pocket-personal-adhoc.ipa
+
+      - name: Publish ad-hoc personal IPA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="personal-adhoc-${GITHUB_RUN_ID}"
+          gh release create "$tag" work/out/fish-pocket-personal-adhoc.ipa \
+            --repo "${{ github.repository }}" \
+            --title "Fish Pocket personal ad-hoc IPA (${GITHUB_RUN_ID})" \
+            --notes "Main app only, ad-hoc signed with codesign --sign -. This is NOT a distribution signature and cannot be installed as-is. It exists so an on-device signer can replace the existing ad-hoc signature slot instead of adding one to a completely unsigned binary."
+          asset="https://github.com/${{ github.repository }}/releases/download/$tag/fish-pocket-personal-adhoc.ipa"
+          sha="$(awk '{print $1}' work/out/SHA256SUMS.txt)"
+          {
+            echo "### Ad-hoc personal IPA"
+            echo ""
+            echo "$asset"
+            echo ""
+            echo "SHA256: \`$sha\`"
+          } >>"$GITHUB_STEP_SUMMARY"
