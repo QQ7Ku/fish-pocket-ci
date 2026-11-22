@@ -1,0 +1,103 @@
+# Remove every code signature left in the unsigned IPA, then repack it.
+# The signer error "主程序 embedded 完整性校验失败 (CodeDirectory 与 Mach-O 不一致)"
+# comes from stale ad-hoc signatures (NodeMobile/Python are ad-hoc signed by the
+# vendor scripts). Signing a bundle that still contains them makes zsign see a
+# CodeDirectory that does not match the Mach-O it just wrote. A clean IPA has no
+# _CodeSignature directories and no LC_CODE_SIGNATURE, so the local signer can
+# apply its own signature to every nested binary.
+name: Clean unsigned IPA
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: "iOS build run ID"
+        required: true
+        default: "44976133970"
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  clean:
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download, strip signatures and repack
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download "${{ inputs.build_run_id }}" \
+            --repo "${{ github.repository }}" \
+            -n fish-pocket-unsigned-ios -D artifact
+          ipa="$(find artifact -name 'fish-pocket-unsigned.ipa' -print -quit)"
+          test -n "$ipa"
+          echo "source=$ipa"
+
+          rm -rf work && mkdir -p work && cd work
+          unzip -q "$OLDPWD/$ipa" -d ipa
+          APP="ipa/Payload/DshIOS.app"
+          test -d "$APP"
+
+          echo "=== before ==="
+          codesign -dv "$APP" 2>&1 || true
+
+          # Strip every Mach-O signature (main binary, frameworks, dylibs, .so).
+          find "$APP" -type f \( -perm -111 -o -name '*.dylib' -o -name '*.so' \) -print0 |
+            while IFS= read -r -d '' f; do
+              if file "$f" | grep -q 'Mach-O'; then
+                codesign --remove-signature "$f" 2>/dev/null || true
+              fi
+            done
+
+          # Remove the signature directories and any provisioning leftovers.
+          find "$APP" -name '_CodeSignature' -type d -prune -exec rm -rf {} +
+          find "$APP" -name 'CodeResources' -type f -delete
+          find "$APP" -name 'embedded.mobileprovision' -delete
+
+          echo "=== after ==="
+          if codesign -dv "$APP" >/dev/null 2>&1; then
+            echo "::error::main app still has a signature"
+            exit 1
+          fi
+          echo "main app: unsigned"
+
+          signed=0
+          while IFS= read -r -d '' f; do
+            if file "$f" | grep -q 'Mach-O' && codesign -dv "$f" >/dev/null 2>&1; then
+              signed=$((signed+1))
+              echo "still signed: $f"
+            fi
+          done < <(find "$APP" -type f \( -perm -111 -o -name '*.dylib' -o -name '*.so' \) -print0)
+          echo "still_signed=$signed"
+          test "$signed" -eq 0
+
+          mkdir -p out
+          ditto -c -k --sequesterRsrc --keepParent ipa/Payload out/fish-pocket-unsigned-clean.ipa
+          shasum -a 256 out/fish-pocket-unsigned-clean.ipa | tee out/SHA256SUMS.txt
+          ls -lh out/fish-pocket-unsigned-clean.ipa
+
+      - name: Publish cleaned unsigned IPA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="unsigned-clean-${GITHUB_RUN_ID}"
+          gh release create "$tag" work/out/fish-pocket-unsigned-clean.ipa \
+            --repo "${{ github.repository }}" \
+            --title "Fish Pocket cleaned unsigned IPA (${GITHUB_RUN_ID})" \
+            --notes "Every code signature and _CodeSignature directory was removed from DshIOS.app before repacking. Sign this with your own Apple Developer certificate or Apple ID on the iPad (BuildBox / TanaraSign / ESign). Source build: run ${{ inputs.build_run_id }}. This asset is NOT signed and cannot be installed as-is."
+          asset="https://github.com/${{ github.repository }}/releases/download/$tag/fish-pocket-unsigned-clean.ipa"
+          sha="$(awk '{print $1}' work/out/SHA256SUMS.txt)"
+          {
+            echo "### Cleaned unsigned IPA"
+            echo ""
+            echo "$asset"
+            echo ""
+            echo "SHA256: \`$sha\`"
+          } >>"$GITHUB_STEP_SUMMARY"
